@@ -23,7 +23,8 @@ def main():
     """Main method."""
     parser = argparse.ArgumentParser(prog="rhasspy-wake-raven-hermes")
     parser.add_argument(
-        "--template-dir", required=True, help="Directories with Raven WAV templates"
+        "--template-dir",
+        help="Directory with Raven WAV templates (default: templates in Python module)",
     )
     parser.add_argument(
         "--probability-threshold",
@@ -119,7 +120,11 @@ def main():
     _LOGGER.debug(args)
     hermes: typing.Optional[WakeHermesMqtt] = None
 
-    args.template_dir = Path(args.template_dir)
+    if args.template_dir:
+        args.template_dir = Path(args.template_dir)
+
+    if args.template_dir is None or (not args.template_dir.is_dir()):
+        args.template_dir = _DIR / "templates"
 
     # Create silence detector
     recorder = WebRtcVadRecorder(

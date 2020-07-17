@@ -22,8 +22,8 @@ with open(version_path, "r") as version_file:
     version = version_file.read().strip()
 
 module_dir = this_dir / "rhasspywake_raven_hermes"
-model_dir = module_dir / "models"
-model_files = [str(f.relative_to(module_dir)) for f in model_dir.rglob("*")]
+templates_dir = module_dir / "templates"
+template_files = [str(f.relative_to(module_dir)) for f in templates_dir.rglob("*")]
 
 setuptools.setup(
     name="rhasspy-wake-raven-hermes",
@@ -32,7 +32,7 @@ setuptools.setup(
     author_email="mike@rhasspy.org",
     url="https://github.com/rhasspy/rhasspy-wake-raven-hermes",
     packages=setuptools.find_packages(),
-    package_data={"rhasspywake_raven_hermes": model_files + ["py.typed"]},
+    package_data={"rhasspywake_raven_hermes": template_files + ["py.typed"]},
     install_requires=requirements,
     entry_points={
         "console_scripts": [
