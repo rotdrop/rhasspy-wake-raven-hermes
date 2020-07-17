@@ -17,6 +17,15 @@ $ make
 $ make install
 ```
 
+## WAV Templates
+
+Steps to record a custom wake word:
+
+1. Record yourself saying the wake word at least 3 times
+2. Trim silence around the audio and export 3 WAV files to a directory
+    * WAV format should be 16-bit 16Khz mono
+3. Pass `--template-dir /path/to/directory` to `rhasspy-wake-raven-hermes` with the path to the directory with your WAV templates
+
 ## Running
 
 ```bash
@@ -27,7 +36,18 @@ $ bin/rhasspy-wake-raven-hermes <ARGS>
 
 ```
 usage: rhasspy-wake-raven-hermes [-h] --template-dir TEMPLATE_DIR
-                                 --distance-threshold DISTANCE_THRESHOLD
+                                 [--probability-threshold PROBABILITY_THRESHOLD PROBABILITY_THRESHOLD]
+                                 [--distance-threshold DISTANCE_THRESHOLD]
+                                 [--minimum-matches MINIMUM_MATCHES]
+                                 [--refractory-seconds REFRACTORY_SECONDS]
+                                 [--window-shift-seconds WINDOW_SHIFT_SECONDS]
+                                 [--dtw-window-size DTW_WINDOW_SIZE]
+                                 [--vad-sensitivity {1,2,3}]
+                                 [--current-threshold CURRENT_THRESHOLD]
+                                 [--max-energy MAX_ENERGY]
+                                 [--max-current-ratio-threshold MAX_CURRENT_RATIO_THRESHOLD]
+                                 [--silence-method {vad_only,ratio_only,current_only,vad_and_ratio,vad_and_current,all}]
+                                 [--average-templates]
                                  [--wakeword-id WAKEWORD_ID]
                                  [--udp-audio UDP_AUDIO UDP_AUDIO UDP_AUDIO]
                                  [--log-predictions] [--host HOST]
@@ -46,9 +66,38 @@ optional arguments:
   -h, --help            show this help message and exit
   --template-dir TEMPLATE_DIR
                         Directories with Raven WAV templates
+  --probability-threshold PROBABILITY_THRESHOLD PROBABILITY_THRESHOLD
+                        Probability range where detection occurs (default:
+                        (0.45, 0.55))
   --distance-threshold DISTANCE_THRESHOLD
                         Normalized dynamic time warping distance threshold for
-                        template matching
+                        template matching (default: 0.22)
+  --minimum-matches MINIMUM_MATCHES
+                        Number of templates that must match to produce output
+                        (default: 1)
+  --refractory-seconds REFRACTORY_SECONDS
+                        Seconds before wake word can be activated again
+                        (default: 2)
+  --window-shift-seconds WINDOW_SHIFT_SECONDS
+                        Seconds to shift sliding time window on audio buffer
+                        (default: 0.05)
+  --dtw-window-size DTW_WINDOW_SIZE
+                        Size of band around slanted diagonal during dynamic
+                        time warping calculation (default: 5)
+  --vad-sensitivity {1,2,3}
+                        Webrtcvad VAD sensitivity (1-3)
+  --current-threshold CURRENT_THRESHOLD
+                        Debiased energy threshold of current audio frame
+  --max-energy MAX_ENERGY
+                        Fixed maximum energy for ratio calculation (default:
+                        observed)
+  --max-current-ratio-threshold MAX_CURRENT_RATIO_THRESHOLD
+                        Threshold of ratio between max energy and current
+                        audio frame
+  --silence-method {vad_only,ratio_only,current_only,vad_and_ratio,vad_and_current,all}
+                        Method for detecting silence
+  --average-templates   Average wakeword templates together to reduce number
+                        of calculations
   --wakeword-id WAKEWORD_ID
                         Wakeword ID for model (default: use file name)
   --udp-audio UDP_AUDIO UDP_AUDIO UDP_AUDIO
