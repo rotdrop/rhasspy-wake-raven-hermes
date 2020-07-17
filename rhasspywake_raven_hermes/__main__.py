@@ -160,6 +160,7 @@ def main():
     hermes = WakeHermesMqtt(
         client,
         raven=raven,
+        minimum_matches=args.minimum_matches,
         wakeword_id=args.wakeword_id,
         udp_audio=udp_audio,
         site_ids=args.site_id,

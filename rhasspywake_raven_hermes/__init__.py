@@ -33,6 +33,7 @@ class WakeHermesMqtt(HermesClient):
         self,
         client,
         raven: Raven,
+        minimum_matches: int = 1,
         wakeword_id: str = "",
         site_ids: typing.Optional[typing.List[str]] = None,
         enabled: bool = True,
@@ -56,6 +57,7 @@ class WakeHermesMqtt(HermesClient):
         self.subscribe(AudioFrame, HotwordToggleOn, HotwordToggleOff, GetHotwords)
 
         self.raven = raven
+        self.minimum_matches = minimum_matches
         self.wakeword_id = wakeword_id
 
         self.enabled = enabled
@@ -175,7 +177,7 @@ class WakeHermesMqtt(HermesClient):
                     if chunk:
                         try:
                             matching_indexes = self.raven.process_chunk(chunk)
-                            if matching_indexes:
+                            if len(matching_indexes) >= self.minimum_matches:
                                 asyncio.run_coroutine_threadsafe(
                                     self.publish_all(
                                         self.handle_detection(matching_indexes)
