@@ -13,12 +13,16 @@ from rhasspyhermes.wake import (
     GetHotwords,
     HotwordDetected,
     HotwordError,
+    HotwordExampleRecorded,
     Hotwords,
     HotwordToggleOff,
     HotwordToggleOn,
     HotwordToggleReason,
+    RecordHotwordExample,
 )
+from rhasspysilence import WebRtcVadRecorder
 from rhasspywake_raven import Raven
+from rhasspywake_raven.utils import trim_silence
 
 WAV_HEADER_BYTES = 44
 _LOGGER = logging.getLogger("rhasspywake_raven_hermes")
@@ -54,7 +58,13 @@ class WakeHermesMqtt(HermesClient):
             site_ids=site_ids,
         )
 
-        self.subscribe(AudioFrame, HotwordToggleOn, HotwordToggleOff, GetHotwords)
+        self.subscribe(
+            AudioFrame,
+            HotwordToggleOn,
+            HotwordToggleOff,
+            GetHotwords,
+            RecordHotwordExample,
+        )
 
         self.raven = raven
         self.minimum_matches = minimum_matches
@@ -77,6 +87,11 @@ class WakeHermesMqtt(HermesClient):
         self.audio_buffer = bytes()
 
         self.last_audio_site_id: str = "default"
+
+        # Fields for recording examples
+        self.recording_example = False
+        self.example_recorder = WebRtcVadRecorder(max_seconds=10)
+        self.example_future: typing.Optional[asyncio.Future] = None
 
         # Start threads
         self.detection_thread = threading.Thread(
@@ -146,6 +161,67 @@ class WakeHermesMqtt(HermesClient):
                 error=str(e), context=str(get_hotwords), site_id=get_hotwords.site_id
             )
 
+    async def handle_record_example(
+        self, record_example: RecordHotwordExample
+    ) -> typing.AsyncIterable[
+        typing.Union[typing.Tuple[HotwordExampleRecorded, TopicArgs], HotwordError]
+    ]:
+        """Record an example of a hotword."""
+        try:
+            assert (
+                not self.recording_example
+            ), "Only one example can be recorded at a time"
+
+            # Start recording
+            assert self.loop, "No loop"
+            self.example_future = self.loop.create_future()
+            self.example_recorder.start()
+            self.recording_example = True
+
+            # Wait for result
+            _LOGGER.debug("Recording example (id=%s)", record_example.id)
+            example_audio = await self.example_future
+            assert isinstance(example_audio, bytes)
+
+            # Trim silence
+            _LOGGER.debug("Trimming silence from example")
+            example_audio = trim_silence(example_audio)
+
+            # Convert to WAV format
+            wav_data = self.to_wav_bytes(example_audio)
+
+            yield (
+                HotwordExampleRecorded(wav_bytes=wav_data),
+                {"site_id": record_example.site_id, "request_id": record_example.id},
+            )
+
+        except Exception as e:
+            _LOGGER.exception("handle_record_example")
+            yield HotwordError(
+                error=str(e),
+                context=str(record_example),
+                site_id=record_example.site_id,
+            )
+
+    def add_example_audio(self, audio_data: bytes):
+        """Add an audio frame to the currently recording example."""
+        result = self.example_recorder.process_chunk(audio_data)
+        if result:
+            self.recording_example = False
+            assert self.example_future is not None, "No future"
+            example_audio = self.example_recorder.stop()
+            _LOGGER.debug(
+                "Recorded %s byte(s) for audio for example", len(example_audio)
+            )
+
+            # Signal waiting coroutine with audio
+            assert self.loop, "No loop"
+            self.loop.call_soon_threadsafe(
+                self.example_future.set_result, example_audio
+            )
+
+    # -------------------------------------------------------------------------
+
     def detection_thread_proc(self):
         """Handle WAV audio chunks."""
         try:
@@ -164,6 +240,14 @@ class WakeHermesMqtt(HermesClient):
 
                 # Extract/convert audio data
                 audio_data = self.maybe_convert_wav(wav_bytes)
+
+                if self.recording_example:
+                    # Add to currently recording example
+                    self.add_example_audio(audio_data)
+
+                    # Don't process audio for wake word while recording
+                    self.audio_buffer = bytes()
+                    continue
 
                 # Add to persistent buffer
                 self.audio_buffer += audio_data
@@ -243,5 +327,20 @@ class WakeHermesMqtt(HermesClient):
         elif isinstance(message, GetHotwords):
             async for hotword_result in self.handle_get_hotwords(message):
                 yield hotword_result
+        elif isinstance(message, RecordHotwordExample):
+            # Handled in on_message
+            pass
         else:
             _LOGGER.warning("Unexpected message: %s", message)
+
+    async def on_message(
+        self,
+        message: Message,
+        site_id: typing.Optional[str] = None,
+        session_id: typing.Optional[str] = None,
+        topic: typing.Optional[str] = None,
+    ) -> GeneratorType:
+        """Received message from MQTT broker (non-blocking)."""
+        if isinstance(message, RecordHotwordExample):
+            async for example_result in self.handle_record_example(message):
+                yield example_result

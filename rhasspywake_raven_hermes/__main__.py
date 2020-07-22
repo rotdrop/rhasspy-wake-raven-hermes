@@ -123,8 +123,17 @@ def main():
     if args.template_dir:
         args.template_dir = Path(args.template_dir)
 
-    if args.template_dir is None or (not args.template_dir.is_dir()):
+        if args.template_dir.is_dir():
+            _LOGGER.debug("Loading WAV templates from %s", args.template_dir)
+            wav_paths = list(args.template_dir.glob("*.wav"))
+
+            if not wav_paths:
+                _LOGGER.warning("No WAV templates found!")
+
+    if not wav_paths:
         args.template_dir = _DIR / "templates"
+        _LOGGER.debug("Loading WAV templates from %s", args.template_dir)
+        wav_paths = list(args.template_dir.glob("*.wav"))
 
     # Create silence detector
     recorder = WebRtcVadRecorder(
@@ -136,10 +145,7 @@ def main():
     )
 
     # Load audio templates
-    _LOGGER.debug("Loading WAV templates from %s", args.template_dir)
-    templates = [
-        Raven.wav_to_template(p, name=p.name) for p in args.template_dir.glob("*.wav")
-    ]
+    templates = [Raven.wav_to_template(p, name=p.name) for p in wav_paths]
     if args.average_templates:
         _LOGGER.debug("Averaging %s templates", len(templates))
         templates = [Template.average_templates(templates)]
