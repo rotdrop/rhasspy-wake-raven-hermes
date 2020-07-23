@@ -119,6 +119,7 @@ def main():
     _LOGGER.debug(args)
     hermes: typing.Optional[WakeHermesMqtt] = None
 
+    wav_paths: typing.List[Path] = []
     if args.template_dir:
         args.template_dir = Path(args.template_dir)
 
