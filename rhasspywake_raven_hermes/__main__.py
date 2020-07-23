@@ -29,9 +29,8 @@ def main():
     parser.add_argument(
         "--probability-threshold",
         type=float,
-        nargs=2,
-        default=[0.45, 0.55],
-        help="Probability range where detection occurs (default: (0.45, 0.55))",
+        default=0.5,
+        help="Probability above which detection occurs (default: 0.5)",
     )
     parser.add_argument(
         "--distance-threshold",
@@ -153,7 +152,8 @@ def main():
     raven = Raven(
         templates=templates,
         recorder=recorder,
-        probability_threshold=tuple(args.probability_threshold),
+        probability_threshold=args.probability_threshold,
+        minimum_matches=args.minimum_matches,
         distance_threshold=args.distance_threshold,
         refractory_sec=args.refractory_seconds,
         shift_sec=args.window_shift_seconds,
