@@ -23,8 +23,11 @@ def main():
     """Main method."""
     parser = argparse.ArgumentParser(prog="rhasspy-wake-raven-hermes")
     parser.add_argument(
-        "--template-dir",
-        help="Directory with Raven WAV templates (default: templates in Python module)",
+        "--keyword",
+        action="append",
+        nargs="+",
+        default=[],
+        help="Directory with WAV templates and settings (setting-name=value)",
     )
     parser.add_argument(
         "--probability-threshold",
@@ -96,11 +99,6 @@ def main():
         help="Average wakeword templates together to reduce number of calculations",
     )
     parser.add_argument(
-        "--wakeword-id",
-        default="",
-        help="Wakeword ID for model (default: use file name)",
-    )
-    parser.add_argument(
         "--udp-audio",
         nargs=3,
         action="append",
@@ -111,7 +109,7 @@ def main():
     )
     parser.add_argument(
         "--examples-format",
-        default="%Y%m%d-%H%M%S.wav",
+        default="{keyword}/examples/%Y%m%d-%H%M%S.wav",
         help="Format of positive example WAV file names using strftime (relative to examples-dir)",
     )
     parser.add_argument(
@@ -130,24 +128,18 @@ def main():
     # -------------------------------------------------------------------------
 
     if args.examples_dir:
+        # Directory to save positive example WAV files
         args.examples_dir = Path(args.examples_dir)
         args.examples_dir.mkdir(parents=True, exist_ok=True)
 
-    wav_paths: typing.List[Path] = []
-    if args.template_dir:
-        args.template_dir = Path(args.template_dir)
+    if args.keyword:
+        missing_keywords = not any(list(Path(k[0]).glob("*.wav")) for k in args.keyword)
+    else:
+        missing_keywords = True
 
-        if args.template_dir.is_dir():
-            _LOGGER.debug("Loading WAV templates from %s", args.template_dir)
-            wav_paths = list(args.template_dir.glob("*.wav"))
-
-            if not wav_paths:
-                _LOGGER.warning("No WAV templates found!")
-
-    if not wav_paths:
-        args.template_dir = _DIR / "templates"
-        _LOGGER.debug("Loading WAV templates from %s", args.template_dir)
-        wav_paths = list(args.template_dir.glob("*.wav"))
+    if missing_keywords:
+        args.keyword = [[_DIR / "templates"]]
+        _LOGGER.debug("No keywords provided. Use built-in 'okay rhasspy' templates.")
 
     # Create silence detector
     recorder = WebRtcVadRecorder(
@@ -159,21 +151,58 @@ def main():
     )
 
     # Load audio templates
-    templates = [Raven.wav_to_template(p, name=p.name) for p in wav_paths]
-    if args.average_templates:
-        _LOGGER.debug("Averaging %s templates", len(templates))
-        templates = [Template.average_templates(templates)]
+    ravens: typing.List[Raven] = []
 
-    raven = Raven(
-        templates=templates,
-        recorder=recorder,
-        probability_threshold=args.probability_threshold,
-        minimum_matches=args.minimum_matches,
-        distance_threshold=args.distance_threshold,
-        refractory_sec=args.refractory_seconds,
-        shift_sec=args.window_shift_seconds,
-        debug=args.log_predictions,
-    )
+    for keyword_settings in args.keyword:
+        template_dir = Path(keyword_settings[0])
+        wav_paths = list(template_dir.glob("*.wav"))
+        if not wav_paths:
+            _LOGGER.warning("No WAV files found in %s", template_dir)
+            continue
+
+        keyword_name = template_dir.name
+
+        # Load audio templates
+        keyword_templates = [
+            Raven.wav_to_template(p, name=str(p), shift_sec=args.window_shift_seconds)
+            for p in wav_paths
+        ]
+
+        raven_args = {
+            "templates": keyword_templates,
+            "keyword_name": keyword_name,
+            "recorder": recorder,
+            "probability_threshold": args.probability_threshold,
+            "minimum_matches": args.minimum_matches,
+            "distance_threshold": args.distance_threshold,
+            "refractory_sec": args.refractory_seconds,
+            "shift_sec": args.window_shift_seconds,
+            "debug": args.log_predictions,
+        }
+
+        # Apply settings
+        average_templates = args.average_templates
+        for setting_str in keyword_settings[1:]:
+            setting_name, setting_value = setting_str.strip().split("=", maxsplit=1)
+            setting_name = setting_name.lower()
+
+            if setting_name == "name":
+                raven_args["keyword_name"] = setting_value
+            elif setting_name == "probability-threshold":
+                raven_args["probability_threshold"] = float(setting_value)
+            elif setting_name == "minimum-matches":
+                raven_args["minimum_matches"] = int(setting_value)
+            elif setting_name == "average-templates":
+                average_templates = setting_value.lower().strip() == "true"
+
+        if average_templates:
+            _LOGGER.debug(
+                "Averaging %s templates for %s", len(keyword_templates), template_dir
+            )
+            raven_args["templates"] = [Template.average_templates(keyword_templates)]
+
+        # Create instance of Raven in a separate thread for keyword
+        ravens.append(Raven(**raven_args))
 
     udp_audio = []
     if args.udp_audio:
@@ -185,11 +214,9 @@ def main():
     client = mqtt.Client()
     hermes = WakeHermesMqtt(
         client,
-        raven=raven,
-        minimum_matches=args.minimum_matches,
+        ravens=ravens,
         examples_dir=args.examples_dir,
         examples_format=args.examples_format,
-        wakeword_id=args.wakeword_id,
         udp_audio=udp_audio,
         site_ids=args.site_id,
     )
@@ -206,6 +233,7 @@ def main():
     finally:
         _LOGGER.debug("Shutting down")
         client.loop_stop()
+        hermes.stop()
 
 
 # -----------------------------------------------------------------------------

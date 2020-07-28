@@ -38,10 +38,9 @@ class WakeHermesMqtt(HermesClient):
     def __init__(
         self,
         client,
-        raven: Raven,
-        minimum_matches: int = 1,
+        ravens: typing.List[Raven],
         examples_dir: typing.Optional[Path] = None,
-        examples_format: str = "%Y%m%d-%H%M%S.wav",
+        examples_format: str = "{keyword}/examples/%Y%m%d-%H%M%S.wav",
         wakeword_id: str = "",
         site_ids: typing.Optional[typing.List[str]] = None,
         enabled: bool = True,
@@ -70,8 +69,7 @@ class WakeHermesMqtt(HermesClient):
             RecordHotwordExample,
         )
 
-        self.raven = raven
-        self.minimum_matches = minimum_matches
+        self.ravens = ravens
         self.wakeword_id = wakeword_id
 
         self.examples_dir = examples_dir
@@ -100,11 +98,27 @@ class WakeHermesMqtt(HermesClient):
         self.example_recorder = WebRtcVadRecorder(max_seconds=10)
         self.example_future: typing.Optional[asyncio.Future] = None
 
-        # Start threads
-        self.detection_thread = threading.Thread(
-            target=self.detection_thread_proc, daemon=True
-        )
-        self.detection_thread.start()
+        # Raw audio chunk queues for Raven threads
+        self.chunk_queues: typing.List[queue.Queue] = [
+            queue.Queue() for raven in ravens
+        ]
+
+        # Start main thread to convert audio from MQTT/UDP
+        self.audio_thread = threading.Thread(target=self.audio_thread_proc, daemon=True)
+        self.audio_thread.start()
+
+        # Start a thread per Raven instance (per-keyword)
+        self.detection_threads = [
+            threading.Thread(
+                target=self.detection_thread_proc,
+                args=(self.chunk_queues[i], self.ravens[i]),
+                daemon=True,
+            )
+            for i in range(len(self.ravens))
+        ]
+
+        for thread in self.detection_threads:
+            thread.start()
 
         # Listen for raw audio on UDP too
         self.udp_chunk_size = udp_chunk_size
@@ -126,22 +140,23 @@ class WakeHermesMqtt(HermesClient):
         self.wav_queue.put((wav_bytes, site_id))
 
     async def handle_detection(
-        self, matching_indexes: typing.List[int]
+        self, matching_indexes: typing.List[int], raven: Raven
     ) -> typing.AsyncIterable[
         typing.Union[typing.Tuple[HotwordDetected, TopicArgs], HotwordError]
     ]:
         """Handle a successful hotword detection"""
         try:
-            template = self.raven.templates[matching_indexes[0]]
-            wakeword_id = self.wakeword_id
+            template = raven.templates[matching_indexes[0]]
+
+            wakeword_id = raven.keyword_name or template.name
             if not wakeword_id:
-                wakeword_id = template.name
+                wakeword_id = "default"
 
             yield (
                 HotwordDetected(
                     site_id=self.last_audio_site_id,
                     model_id=template.name,
-                    current_sensitivity=self.raven.distance_threshold,
+                    current_sensitivity=raven.distance_threshold,
                     model_version="",
                     model_type="personal",
                 ),
@@ -151,7 +166,7 @@ class WakeHermesMqtt(HermesClient):
             _LOGGER.exception("handle_detection")
             yield HotwordError(
                 error=str(e),
-                context=str(matching_indexes),
+                context=f"{raven.keyword_name}: {template.name}",
                 site_id=self.last_audio_site_id,
             )
 
@@ -229,13 +244,20 @@ class WakeHermesMqtt(HermesClient):
 
     # -------------------------------------------------------------------------
 
-    def detection_thread_proc(self):
+    def audio_thread_proc(self):
         """Handle WAV audio chunks."""
         try:
             while True:
                 wav_bytes, site_id = self.wav_queue.get()
                 if wav_bytes is None:
                     # Shutdown signal
+                    for chunk_queue in self.chunk_queues:
+                        chunk_queue.put(None)
+
+                    # Wait for detection threads to exit
+                    for thread in self.detection_threads:
+                        thread.join()
+
                     break
 
                 self.last_audio_site_id = site_id
@@ -256,55 +278,72 @@ class WakeHermesMqtt(HermesClient):
                     self.audio_buffer = bytes()
                     continue
 
-                # Add to persistent buffer
-                self.audio_buffer += audio_data
+                # Add to queues for detection threads
+                for chunk_queue in self.chunk_queues:
+                    chunk_queue.put(audio_data)
+        except Exception:
+            _LOGGER.exception("audio_thread_proc")
 
-                # Process in chunks.
-                # Any remaining audio data will be kept in buffer.
-                while len(self.audio_buffer) >= self.chunk_size:
-                    chunk = self.audio_buffer[: self.chunk_size]
-                    self.audio_buffer = self.audio_buffer[self.chunk_size :]
+    def detection_thread_proc(self, chunk_queue: queue.Queue, raven: Raven):
+        """Run Raven detection on audio chunks."""
+        try:
+            _LOGGER.debug("Listening for keyword %s", raven.keyword_name)
 
-                    if chunk:
-                        try:
-                            keep_audio = bool(self.examples_dir)
-                            matching_indexes = self.raven.process_chunk(
-                                chunk, keep_audio=keep_audio
+            while True:
+                audio_data = chunk_queue.get()
+                if audio_data is None:
+                    # Shutdown signal
+                    break
+
+                if audio_data:
+                    try:
+                        keep_audio = bool(self.examples_dir)
+                        matching_indexes = raven.process_chunk(
+                            audio_data, keep_audio=keep_audio
+                        )
+                        if len(matching_indexes) >= raven.minimum_matches:
+                            # Report detection
+                            assert self.loop is not None, "No loop"
+                            asyncio.run_coroutine_threadsafe(
+                                self.publish_all(
+                                    self.handle_detection(matching_indexes, raven)
+                                ),
+                                self.loop,
                             )
-                            if len(matching_indexes) >= self.minimum_matches:
-                                # Report detection
-                                asyncio.run_coroutine_threadsafe(
-                                    self.publish_all(
-                                        self.handle_detection(matching_indexes)
-                                    ),
-                                    self.loop,
-                                )
 
-                                if keep_audio:
-                                    # Save positive example
-                                    example_path = self.examples_dir / time.strftime(
-                                        self.examples_format
+                            if keep_audio:
+                                # Save positive example
+                                assert self.examples_dir is not None
+                                example_path = self.examples_dir / time.strftime(
+                                    self.examples_format
+                                ).format(keyword=raven.keyword_name)
+
+                                example_path.parent.mkdir(parents=True, exist_ok=True)
+
+                                with open(example_path, "wb") as example_file:
+                                    example_wav_bytes = self.to_wav_bytes(
+                                        raven.example_audio_buffer
                                     )
+                                    example_file.write(example_wav_bytes)
 
-                                    example_path.parent.mkdir(
-                                        parents=True, exist_ok=True
-                                    )
+                                _LOGGER.debug("Wrote example to %s", example_path)
 
-                                    with open(example_path, "wb") as example_file:
-                                        example_wav_bytes = self.to_wav_bytes(
-                                            self.raven.example_audio_buffer
-                                        )
-                                        example_file.write(example_wav_bytes)
-
-                                    _LOGGER.debug("Wrote example to %s", example_path)
-
-                                # Stop processing audio right after a detection
-                                self.audio_buffer = bytes()
-                                break
-                        except Exception:
-                            _LOGGER.exception("process_chunk")
+                            # Stop processing audio right after a detection
+                            self.audio_buffer = bytes()
+                            break
+                    except Exception:
+                        _LOGGER.exception("process_chunk")
         except Exception:
             _LOGGER.exception("detection_thread_proc")
+
+    # -------------------------------------------------------------------------
+
+    def stop(self):
+        """Stop audio and detection threads."""
+        self.wav_queue.put((None, ""))
+
+        _LOGGER.debug("Waiting for detection threads to stop...")
+        self.audio_thread.join()
 
     # -------------------------------------------------------------------------
 
