@@ -53,8 +53,8 @@ def main():
     parser.add_argument(
         "--window-shift-seconds",
         type=float,
-        default=0.05,
-        help="Seconds to shift sliding time window on audio buffer (default: 0.05)",
+        default=Raven.DEFAULT_SHIFT_SECONDS,
+        help=f"Seconds to shift sliding time window on audio buffer (default: {Raven.DEFAULT_SHIFT_SECONDS})",
     )
     parser.add_argument(
         "--dtw-window-size",
@@ -107,6 +107,14 @@ def main():
         help="Host/port/siteId for UDP audio input",
     )
     parser.add_argument(
+        "--examples-dir", help="Save positive example audio to directory as WAV files"
+    )
+    parser.add_argument(
+        "--examples-format",
+        default="%Y%m%d-%H%M%S.wav",
+        help="Format of positive example WAV file names using strftime (relative to examples-dir)",
+    )
+    parser.add_argument(
         "--log-predictions",
         action="store_true",
         help="Log prediction probabilities for each audio chunk (very verbose)",
@@ -118,6 +126,12 @@ def main():
     hermes_cli.setup_logging(args)
     _LOGGER.debug(args)
     hermes: typing.Optional[WakeHermesMqtt] = None
+
+    # -------------------------------------------------------------------------
+
+    if args.examples_dir:
+        args.examples_dir = Path(args.examples_dir)
+        args.examples_dir.mkdir(parents=True, exist_ok=True)
 
     wav_paths: typing.List[Path] = []
     if args.template_dir:
@@ -173,6 +187,8 @@ def main():
         client,
         raven=raven,
         minimum_matches=args.minimum_matches,
+        examples_dir=args.examples_dir,
+        examples_format=args.examples_format,
         wakeword_id=args.wakeword_id,
         udp_audio=udp_audio,
         site_ids=args.site_id,

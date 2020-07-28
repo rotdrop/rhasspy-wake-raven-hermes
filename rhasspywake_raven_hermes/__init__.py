@@ -4,7 +4,9 @@ import logging
 import queue
 import socket
 import threading
+import time
 import typing
+from pathlib import Path
 
 from rhasspyhermes.audioserver import AudioFrame
 from rhasspyhermes.base import Message
@@ -38,13 +40,15 @@ class WakeHermesMqtt(HermesClient):
         client,
         raven: Raven,
         minimum_matches: int = 1,
+        examples_dir: typing.Optional[Path] = None,
+        examples_format: str = "%Y%m%d-%H%M%S.wav",
         wakeword_id: str = "",
         site_ids: typing.Optional[typing.List[str]] = None,
         enabled: bool = True,
         sample_rate: int = 16000,
         sample_width: int = 2,
         channels: int = 1,
-        chunk_size: int = 960,
+        chunk_size: int = 1920,
         udp_audio: typing.Optional[typing.List[typing.Tuple[str, int, str]]] = None,
         udp_chunk_size: int = 2048,
         log_predictions: bool = False,
@@ -69,6 +73,9 @@ class WakeHermesMqtt(HermesClient):
         self.raven = raven
         self.minimum_matches = minimum_matches
         self.wakeword_id = wakeword_id
+
+        self.examples_dir = examples_dir
+        self.examples_format = examples_format
 
         self.enabled = enabled
         self.disabled_reasons: typing.Set[str] = set()
@@ -260,14 +267,40 @@ class WakeHermesMqtt(HermesClient):
 
                     if chunk:
                         try:
-                            matching_indexes = self.raven.process_chunk(chunk)
+                            keep_audio = bool(self.examples_dir)
+                            matching_indexes = self.raven.process_chunk(
+                                chunk, keep_audio=keep_audio
+                            )
                             if len(matching_indexes) >= self.minimum_matches:
+                                # Report detection
                                 asyncio.run_coroutine_threadsafe(
                                     self.publish_all(
                                         self.handle_detection(matching_indexes)
                                     ),
                                     self.loop,
                                 )
+
+                                if keep_audio:
+                                    # Save positive example
+                                    example_path = self.examples_dir / time.strftime(
+                                        self.examples_format
+                                    )
+
+                                    example_path.parent.mkdir(
+                                        parents=True, exist_ok=True
+                                    )
+
+                                    with open(example_path, "wb") as example_file:
+                                        example_wav_bytes = self.to_wav_bytes(
+                                            self.raven.example_audio_buffer
+                                        )
+                                        example_file.write(example_wav_bytes)
+
+                                    _LOGGER.debug("Wrote example to %s", example_path)
+
+                                # Stop processing audio right after a detection
+                                self.audio_buffer = bytes()
+                                break
                         except Exception:
                             _LOGGER.exception("process_chunk")
         except Exception:
