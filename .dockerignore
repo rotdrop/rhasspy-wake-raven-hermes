@@ -1,0 +1,11 @@
+*
+!requirements.txt
+!rhasspywake_raven_hermes/*.py
+!Makefile
+!setup.py
+!README.md
+!LICENSE
+!VERSION
+!download/
+!scripts/
+!bin/rhasspy-wake-raven-hermes
