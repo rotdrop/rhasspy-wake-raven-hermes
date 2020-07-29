@@ -1,6 +1,7 @@
 *
 !requirements.txt
 !rhasspywake_raven_hermes/*.py
+!rhasspywake_raven_hermes/templates/*.wav
 !Makefile
 !setup.py
 !README.md
