@@ -24,7 +24,9 @@ Steps to record a custom wake word:
 1. Record yourself saying the wake word at least 3 times
 2. Trim silence around the audio and export 3 WAV files to a directory
     * WAV format should be 16-bit 16Khz mono
-3. Pass `--template-dir /path/to/directory` to `rhasspy-wake-raven-hermes` with the path to the directory with your WAV templates
+3. Pass `--keyword /path/to/directory` to `rhasspy-wake-raven-hermes` with the path to the directory with your WAV templates
+
+You may pass more than one `--keyword` with different WAV directories. It's recommended that you use `--average-templates` to reduce CPU usage.
 
 ## Running
 
@@ -35,8 +37,8 @@ $ bin/rhasspy-wake-raven-hermes <ARGS>
 ## Command-Line Options
 
 ```
-usage: rhasspy-wake-raven-hermes [-h] --template-dir TEMPLATE_DIR
-                                 [--probability-threshold PROBABILITY_THRESHOLD PROBABILITY_THRESHOLD]
+usage: rhasspy-wake-raven-hermes [-h] [--keyword KEYWORD [KEYWORD ...]]
+                                 [--probability-threshold PROBABILITY_THRESHOLD]
                                  [--distance-threshold DISTANCE_THRESHOLD]
                                  [--minimum-matches MINIMUM_MATCHES]
                                  [--refractory-seconds REFRACTORY_SECONDS]
@@ -48,8 +50,9 @@ usage: rhasspy-wake-raven-hermes [-h] --template-dir TEMPLATE_DIR
                                  [--max-current-ratio-threshold MAX_CURRENT_RATIO_THRESHOLD]
                                  [--silence-method {vad_only,ratio_only,current_only,vad_and_ratio,vad_and_current,all}]
                                  [--average-templates]
-                                 [--wakeword-id WAKEWORD_ID]
                                  [--udp-audio UDP_AUDIO UDP_AUDIO UDP_AUDIO]
+                                 [--examples-dir EXAMPLES_DIR]
+                                 [--examples-format EXAMPLES_FORMAT]
                                  [--log-predictions] [--host HOST]
                                  [--port PORT] [--username USERNAME]
                                  [--password PASSWORD] [--tls]
@@ -64,11 +67,12 @@ usage: rhasspy-wake-raven-hermes [-h] --template-dir TEMPLATE_DIR
 
 optional arguments:
   -h, --help            show this help message and exit
-  --template-dir TEMPLATE_DIR
-                        Directories with Raven WAV templates
-  --probability-threshold PROBABILITY_THRESHOLD PROBABILITY_THRESHOLD
-                        Probability range where detection occurs (default:
-                        (0.45, 0.55))
+  --keyword KEYWORD [KEYWORD ...]
+                        Directory with WAV templates and settings (setting-
+                        name=value)
+  --probability-threshold PROBABILITY_THRESHOLD
+                        Probability above which detection occurs (default:
+                        0.5)
   --distance-threshold DISTANCE_THRESHOLD
                         Normalized dynamic time warping distance threshold for
                         template matching (default: 0.22)
@@ -80,7 +84,7 @@ optional arguments:
                         (default: 2)
   --window-shift-seconds WINDOW_SHIFT_SECONDS
                         Seconds to shift sliding time window on audio buffer
-                        (default: 0.05)
+                        (default: 0.02)
   --dtw-window-size DTW_WINDOW_SIZE
                         Size of band around slanted diagonal during dynamic
                         time warping calculation (default: 5)
@@ -98,10 +102,13 @@ optional arguments:
                         Method for detecting silence
   --average-templates   Average wakeword templates together to reduce number
                         of calculations
-  --wakeword-id WAKEWORD_ID
-                        Wakeword ID for model (default: use file name)
   --udp-audio UDP_AUDIO UDP_AUDIO UDP_AUDIO
                         Host/port/siteId for UDP audio input
+  --examples-dir EXAMPLES_DIR
+                        Save positive example audio to directory as WAV files
+  --examples-format EXAMPLES_FORMAT
+                        Format of positive example WAV file names using
+                        strftime (relative to examples-dir)
   --log-predictions     Log prediction probabilities for each audio chunk
                         (very verbose)
   --host HOST           MQTT host (default: localhost)

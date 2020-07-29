@@ -160,7 +160,7 @@ def main():
             _LOGGER.warning("No WAV files found in %s", template_dir)
             continue
 
-        keyword_name = template_dir.name
+        keyword_name = template_dir.name if not missing_keywords else "okay-rhasspy"
 
         # Load audio templates
         keyword_templates = [

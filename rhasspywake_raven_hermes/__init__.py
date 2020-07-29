@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import queue
+import re
 import socket
 import threading
 import time
@@ -13,6 +14,7 @@ from rhasspyhermes.base import Message
 from rhasspyhermes.client import GeneratorType, HermesClient, TopicArgs
 from rhasspyhermes.wake import (
     GetHotwords,
+    Hotword,
     HotwordDetected,
     HotwordError,
     HotwordExampleRecorded,
@@ -175,7 +177,22 @@ class WakeHermesMqtt(HermesClient):
     ) -> typing.AsyncIterable[typing.Union[Hotwords, HotwordError]]:
         """Report available hotwords"""
         try:
-            yield Hotwords(models=[], id=get_hotwords.id, site_id=get_hotwords.site_id)
+            models: typing.List[Hotword] = []
+
+            # Each keyword is in a separate Raven instance
+            for raven in self.ravens:
+                # Assume that the directory name is something like
+                # "okay-rhasspy" for the keyword "okay rhasspy".
+                models.append(
+                    Hotword(
+                        model_id=raven.keyword_name,
+                        model_words=re.sub(r"[_-]+", " ", raven.keyword_name),
+                    )
+                )
+
+            yield Hotwords(
+                models=models, id=get_hotwords.id, site_id=get_hotwords.site_id
+            )
 
         except Exception as e:
             _LOGGER.exception("handle_get_hotwords")
