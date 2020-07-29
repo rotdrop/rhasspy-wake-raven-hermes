@@ -91,7 +91,6 @@ class WakeHermesMqtt(HermesClient):
         self.wav_queue: queue.Queue = queue.Queue()
 
         self.first_audio: bool = True
-        self.audio_buffer = bytes()
 
         self.last_audio_site_id: str = "default"
 
@@ -292,7 +291,6 @@ class WakeHermesMqtt(HermesClient):
                     self.add_example_audio(audio_data)
 
                     # Don't process audio for wake word while recording
-                    self.audio_buffer = bytes()
                     continue
 
                 # Add to queues for detection threads
@@ -344,10 +342,6 @@ class WakeHermesMqtt(HermesClient):
                                     example_file.write(example_wav_bytes)
 
                                 _LOGGER.debug("Wrote example to %s", example_path)
-
-                            # Stop processing audio right after a detection
-                            self.audio_buffer = bytes()
-                            break
                     except Exception:
                         _LOGGER.exception("process_chunk")
         except Exception:
