@@ -157,7 +157,7 @@ class WakeHermesMqtt(HermesClient):
                 HotwordDetected(
                     site_id=self.last_audio_site_id,
                     model_id=template.name,
-                    current_sensitivity=raven.distance_threshold,
+                    current_sensitivity=raven.probability_threshold,
                     model_version="",
                     model_type="personal",
                 ),
