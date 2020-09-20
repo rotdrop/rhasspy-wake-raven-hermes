@@ -36,7 +36,7 @@ ENV LANG C.UTF-8
 RUN apt-get update && \
     apt-get install --no-install-recommends --yes \
         python3 python3-dev python3-setuptools python3-pip python3-venv \
-        build-essential liblapack3 libatlas-base-dev \
+        build-essential gfortran libopenblas-dev liblapack-dev cython libatlas-base-dev \
         curl ca-certificates
 
 FROM build-ubuntu as build-amd64
@@ -56,7 +56,7 @@ ENV LANG C.UTF-8
 # ENDIF
 
 RUN install_packages \
-        liblapack3 libatlas-base-dev \
+        gfortran libopenblas-dev liblapack-dev cython libatlas-base-dev \
         curl ca-certificates
 
 # -----------------------------------------------------------------------------
