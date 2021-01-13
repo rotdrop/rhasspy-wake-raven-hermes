@@ -184,7 +184,7 @@ def main():
         average_templates = args.average_templates
         for setting_str in keyword_settings[1:]:
             setting_name, setting_value = setting_str.strip().split("=", maxsplit=1)
-            setting_name = setting_name.lower()
+            setting_name = setting_name.lower().replace("_", "-")
 
             if setting_name == "name":
                 raven_args["keyword_name"] = setting_value

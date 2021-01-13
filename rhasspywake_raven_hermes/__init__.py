@@ -302,7 +302,13 @@ class WakeHermesMqtt(HermesClient):
     def detection_thread_proc(self, chunk_queue: queue.Queue, raven: Raven):
         """Run Raven detection on audio chunks."""
         try:
-            _LOGGER.debug("Listening for keyword %s", raven.keyword_name)
+            _LOGGER.debug(
+                "Listening for keyword %s (probability_threshold=%s, minimum_matches=%s, num_templates=%s)",
+                raven.keyword_name,
+                raven.probability_threshold,
+                raven.minimum_matches,
+                len(raven.templates),
+            )
 
             while True:
                 audio_data = chunk_queue.get()
