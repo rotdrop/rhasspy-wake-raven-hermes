@@ -206,9 +206,9 @@ class WakeHermesMqtt(HermesClient):
     ]:
         """Record an example of a hotword."""
         try:
-            assert (
-                not self.recording_example
-            ), "Only one example can be recorded at a time"
+            if self.recording_example:
+                _LOGGER.warning("Cancelling previous recording")
+                self.example_recorder.stop()
 
             # Start recording
             assert self.loop, "No loop"
