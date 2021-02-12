@@ -117,6 +117,7 @@ def main():
         action="store_true",
         help="Log prediction probabilities for each audio chunk (very verbose)",
     )
+    parser.add_argument("--lang", help="Set lang in hotword detected message")
 
     hermes_cli.add_hermes_args(parser)
     args = parser.parse_args()
@@ -219,6 +220,7 @@ def main():
         examples_format=args.examples_format,
         udp_audio=udp_audio,
         site_ids=args.site_id,
+        lang=args.lang,
     )
 
     _LOGGER.debug("Connecting to %s:%s", args.host, args.port)
